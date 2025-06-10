@@ -83,8 +83,7 @@ class HyperliquidBot:
         self.order_manager = OrderManager(
             connection=self.connection,
             technical_analyzer=self.technical_analyzer,
-            risk_manager=self.risk_manager,
-            config=self.config.data
+            risk_manager=self.risk_manager
         )
         logger.info("Gestor de órdenes inicializado")
         

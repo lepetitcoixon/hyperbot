@@ -1,15 +1,12 @@
 """
 Módulo de conexión a Hyperliquid mainnet.
 Gestiona la autenticación y comunicación con la API.
-Versión actualizada compatible con hyperliquid.exchange.API (sin skip_ws)
 """
 
 import logging
 from typing import Dict, Any, Optional, List, Tuple
 import eth_account
 from eth_account.signers.local import LocalAccount
-from hyperliquid.exchange import API as HyperliquidAPI
-from hyperliquid.api import API as HyperliquidInfoAPI
 import requests
 import time
 import json
@@ -24,7 +21,7 @@ from src.data_provider import DataProvider
 logger = logging.getLogger("connection")
 
 class HyperliquidConnection:
-    """Clase para gestionar la conexión a Hyperliquid mainnet usando la API correcta."""
+    """Clase para gestionar la conexión a Hyperliquid mainnet."""
     
     def __init__(self, account_address: str, secret_key: str, base_url: Optional[str] = None, skip_ws: bool = False):
         """
@@ -34,7 +31,7 @@ class HyperliquidConnection:
             account_address: Dirección de la cuenta principal
             secret_key: Clave privada para firmar transacciones
             base_url: URL base de la API (por defecto, mainnet)
-            skip_ws: Si se debe omitir la conexión WebSocket (ignorado en esta versión)
+            skip_ws: Si se debe omitir la conexión WebSocket
         """
         self.account_address = account_address
         self.secret_key = secret_key
@@ -74,42 +71,8 @@ class HyperliquidConnection:
             self.account_address = self.account.address
             logger.info(f"Usando dirección de cuenta derivada de la clave: {self.account_address}")
         
-        # Inicializar conexiones usando la API disponible (sin parámetros problemáticos)
-        try:
-            # Intentar diferentes formas de inicializar las APIs
-            logger.info("Inicializando APIs de Hyperliquid...")
-            
-            # API para operaciones de exchange (trading) - inicialización simple
-            try:
-                self.exchange_api = HyperliquidAPI()
-                logger.info("Exchange API inicializada correctamente")
-            except Exception as e:
-                logger.warning(f"Error inicializando Exchange API: {str(e)}")
-                self.exchange_api = None
-            
-            # API para información (consultas) - inicialización simple
-            try:
-                self.info_api = HyperliquidInfoAPI()
-                logger.info("Info API inicializada correctamente")
-            except Exception as e:
-                logger.warning(f"Error inicializando Info API: {str(e)}")
-                self.info_api = None
-            
-            if self.exchange_api is None and self.info_api is None:
-                raise Exception("No se pudo inicializar ninguna API")
-            
-            logger.info("APIs de Hyperliquid inicializadas")
-            
-        except Exception as e:
-            logger.error(f"Error al inicializar APIs de Hyperliquid: {str(e)}")
-            raise
-        
         # Inicializar proveedor de datos OHLC reales
-        try:
-            self.data_provider = DataProvider(self.base_url)
-        except Exception as e:
-            logger.warning(f"Error inicializando data provider: {str(e)}")
-            self.data_provider = None
+        self.data_provider = DataProvider(self.base_url)
         
         # Caché de metadatos de mercado
         self._market_metadata_cache = {}
@@ -123,12 +86,8 @@ class HyperliquidConnection:
     def verify_connection(self) -> None:
         """Verifica que la conexión sea válida y que la cuenta tenga fondos."""
         try:
-            # Verificar fondos en cuenta perpetual usando la nueva API
+            # Verificar fondos en cuenta perpetual usando la API REST directamente
             user_state = self.get_user_state()
-            
-            if not user_state:
-                logger.warning("No se pudo obtener estado del usuario para verificación")
-                return
             
             # Registrar la estructura completa para depuración
             logger.debug(f"Estructura completa de user_state: {json.dumps(user_state, indent=2)}")
@@ -183,27 +142,26 @@ class HyperliquidConnection:
                         f"La cuenta {self.account_address} podría no tener fondos suficientes en perpetual ni en spot. "
                         f"Verificar manualmente en la interfaz web."
                     )
-                    
         except Exception as e:
             logger.error(f"Error al verificar la conexión: {str(e)}")
-            logger.warning("Continuando sin verificación completa de fondos")
+            # No lanzar excepción para permitir que el bot continúe funcionando
     
     def get_user_state(self) -> Dict[str, Any]:
         """
-        Obtiene el estado completo del usuario.
+        Obtiene el estado actual del usuario.
         
         Returns:
-            Estado del usuario con balances, posiciones y órdenes
+            Diccionario con el estado del usuario
         """
         try:
-            if self.info_api is None:
-                logger.error("Info API no disponible")
-                return {}
+            # Implementar llamada directa a la API REST
+            url = f"{self.base_url}/info"
+            payload = {"type": "clearinghouseState", "user": self.account_address}
+            headers = {"Content-Type": "application/json"}
             
-            # Usar la API de información para obtener el estado del usuario
-            user_state = self.info_api.user_state(self.account_address)
-            return user_state
-            
+            response = requests.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            return response.json()
         except Exception as e:
             logger.error(f"Error al obtener estado del usuario: {str(e)}")
             return {}
@@ -213,65 +171,218 @@ class HyperliquidConnection:
         Obtiene datos de mercado para un activo.
         
         Args:
-            asset: Símbolo del activo (ej. "BTC")
+            asset: Símbolo del activo (ej. "ETH")
             
         Returns:
-            Datos de mercado del activo
+            Diccionario con datos de mercado
         """
         try:
-            if self.info_api is None:
-                logger.error("Info API no disponible")
-                return {}
+            # Obtener metadatos del mercado directamente usando la API REST
+            url = f"{self.base_url}/info"
+            payload = {"type": "meta"}
+            headers = {"Content-Type": "application/json"}
             
-            # Obtener información del mercado
-            all_mids = self.info_api.all_mids()
+            response = requests.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
             
-            if asset in all_mids:
-                mid_price = all_mids[asset]
-                return {
-                    "midPrice": mid_price,
-                    "asset": asset
-                }
-            else:
-                logger.error(f"Asset {asset} no encontrado en datos de mercado")
-                return {}
-                
+            # Buscar el activo específico en la respuesta
+            universe = data.get("universe", [])
+            for market in universe:
+                if market.get("name") == asset:
+                    logger.info(f"Datos de mercado obtenidos para {asset}")
+                    return market
+            
+            logger.warning(f"No se encontraron datos de mercado para {asset}")
+            return {}
         except Exception as e:
             logger.error(f"Error al obtener datos de mercado para {asset}: {str(e)}")
             return {}
     
-    def get_candles(self, asset: str, interval: str = "5m", limit: int = 100) -> List[Dict[str, Any]]:
+    def get_market_metadata(self, asset: str = None) -> Dict[str, Any]:
         """
-        Obtiene datos de velas para análisis técnico.
+        Obtiene metadatos del mercado, incluyendo tamaños mínimos de orden.
         
         Args:
-            asset: Símbolo del activo
-            interval: Intervalo de tiempo
-            limit: Número de velas a obtener
+            asset: Símbolo del activo específico (opcional)
             
         Returns:
-            Lista de datos de velas
+            Diccionario con metadatos del mercado o del activo específico
+        """
+        # Verificar si la caché es válida (menos de 1 hora)
+        current_time = time.time()
+        if current_time - self._market_metadata_timestamp > 3600 or not self._market_metadata_cache:
+            try:
+                # Obtener metadatos del mercado directamente usando la API REST
+                url = f"{self.base_url}/info"
+                payload = {"type": "meta"}
+                headers = {"Content-Type": "application/json"}
+                
+                response = requests.post(url, json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+                
+                # Procesar y almacenar en caché
+                universe = data.get("universe", [])
+                
+                # Crear un diccionario indexado por nombre de activo
+                asset_metadata = {}
+                for asset_data in universe:
+                    name = asset_data.get("name", "")
+                    if name:
+                        asset_metadata[name] = asset_data
+                
+                self._market_metadata_cache = {
+                    "meta": data,
+                    "assets": asset_metadata
+                }
+                self._market_metadata_timestamp = current_time
+                
+                logger.info(f"Metadatos de mercado actualizados. {len(asset_metadata)} activos disponibles.")
+                
+                # Registrar los metadatos para depuración
+                logger.debug(f"Metadatos de mercado: {json.dumps(self._market_metadata_cache, indent=2)}")
+                
+            except Exception as e:
+                logger.error(f"Error al obtener metadatos del mercado: {str(e)}")
+                if not self._market_metadata_cache:
+                    return {"meta": {}, "assets": {}}
+        
+        # Si se solicita un activo específico
+        if asset:
+            asset_data = self._market_metadata_cache.get("assets", {}).get(asset, {})
+            if not asset_data:
+                logger.warning(f"No se encontraron metadatos para el activo {asset}")
+            return asset_data
+        
+        return self._market_metadata_cache
+    
+    def get_min_order_size(self, asset: str) -> float:
+        """
+        Obtiene el tamaño mínimo de orden para un activo.
+        
+        Args:
+            asset: Símbolo del activo (ej. "BTC")
+            
+        Returns:
+            Tamaño mínimo de orden
         """
         try:
-            if self.data_provider is None:
-                logger.error("Data provider no disponible")
-                return []
+            # Obtener decimales para el tamaño de orden directamente
+            sz_decimals = self.data_provider.get_sz_decimals(asset)
             
-            # Usar el proveedor de datos para obtener velas
-            candles = self.data_provider.get_candles(asset, interval, limit)
-            return candles
+            if sz_decimals > 0:
+                min_size = 10 ** -sz_decimals
+                logger.info(f"Tamaño mínimo de orden para {asset}: {min_size} (basado en {sz_decimals} decimales)")
+                return min_size
+            
+            # Intentar obtener de los metadatos del mercado
+            asset_data = self.get_market_metadata(asset)
+            
+            # Método 1: Buscar en szDecimals
+            sz_decimals = asset_data.get("szDecimals")
+            if sz_decimals:
+                try:
+                    sz_decimals = int(sz_decimals)
+                    if sz_decimals > 0:
+                        min_size = 10 ** -sz_decimals
+                        logger.info(f"Tamaño mínimo de orden para {asset}: {min_size} (basado en {sz_decimals} decimales)")
+                        return min_size
+                except (ValueError, TypeError):
+                    pass
+            
+            # Método 2: Buscar en stepSz
+            step_sz = asset_data.get("stepSz")
+            if step_sz:
+                try:
+                    step_sz_float = float(step_sz)
+                    if step_sz_float > 0:
+                        logger.info(f"Tamaño mínimo de orden para {asset}: {step_sz_float} (basado en stepSz)")
+                        return step_sz_float
+                except (ValueError, TypeError):
+                    pass
+            
+            # Si no se encontró, usar valores predeterminados
+            default_min_sizes = {
+                "BTC": 0.001,  # 1 miliBTC
+                "ETH": 0.01,   # 10 miliETH
+                "SOL": 0.1,    # 0.1 SOL
+            }
+            min_size = default_min_sizes.get(asset, 0.01)
+            logger.warning(f"No se pudo determinar el tamaño mínimo para {asset}. Usando valor predeterminado: {min_size}")
+            return min_size
             
         except Exception as e:
-            logger.error(f"Error al obtener velas para {asset}: {str(e)}")
+            logger.error(f"Error al obtener tamaño mínimo para {asset}: {str(e)}")
+            # Valores predeterminados seguros
+            default_min_sizes = {
+                "BTC": 0.001,  # 1 miliBTC
+                "ETH": 0.01,   # 10 miliETH
+                "SOL": 0.1,    # 0.1 SOL
+            }
+            return default_min_sizes.get(asset, 0.01)
+    
+    def validate_order_size(self, asset: str, size: float) -> Tuple[bool, float]:
+        """
+        Valida si el tamaño de una orden es válido y lo ajusta si es necesario.
+        
+        Args:
+            asset: Símbolo del activo (ej. "BTC")
+            size: Tamaño de la orden a validar
+            
+        Returns:
+            Tupla (es_válido, tamaño_ajustado)
+        """
+        min_size = self.get_min_order_size(asset)
+        
+        # Normalizar el tamaño para que sea un múltiplo del step size
+        normalized_size = self.data_provider.normalize_size(asset, size)
+        
+        if abs(normalized_size) < min_size:
+            logger.warning(f"Tamaño de orden {size} para {asset} es menor que el mínimo {min_size}. Ajustando al mínimo.")
+            # Mantener el signo original (para posiciones cortas)
+            adjusted_size = min_size if normalized_size >= 0 else -min_size
+            # Normalizar nuevamente para asegurar que sea un múltiplo exacto
+            adjusted_size = self.data_provider.normalize_size(asset, adjusted_size)
+            return False, adjusted_size
+        
+        if normalized_size != size:
+            logger.info(f"Tamaño de orden ajustado de {size} a {normalized_size} para cumplir con el step size")
+            return False, normalized_size
+        
+        return True, size
+    
+    def get_candles(self, asset: str, interval: str = "5m", limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Obtiene datos OHLC combinando datos históricos de Binance con el precio actual de Hyperliquid.
+        
+        Args:
+            asset: Símbolo del activo (ej. "BTC")
+            interval: Intervalo de tiempo (ej. "5m", "1h", "1d")
+            limit: Número máximo de velas
+            
+        Returns:
+            Lista de velas OHLC
+        """
+        logger.info(f"Obteniendo datos OHLC para {asset} (intervalo: {interval}, límite: {limit})")
+        
+        # Usar el método combinado del proveedor de datos
+        candles = self.data_provider.get_combined_candles(asset, interval, limit)
+        
+        if not candles:
+            logger.error(f"No se pudieron obtener datos OHLC para {asset}")
             return []
+        
+        logger.info(f"Obtenidos {len(candles)} datos OHLC para {asset}")
+        return candles
     
     def place_order(self, asset: str, is_buy: bool, sz: float, limit_px: float, 
                    order_type: Dict[str, Any] = None, reduce_only: bool = False) -> Dict[str, Any]:
         """
-        Coloca una orden en el mercado usando la API de exchange.
+        Coloca una orden en el mercado.
         
         Args:
-            asset: Símbolo del activo (ej. "BTC")
+            asset: Símbolo del activo (ej. "ETH")
             is_buy: True para compra, False para venta
             sz: Tamaño de la orden
             limit_px: Precio límite
@@ -284,264 +395,128 @@ class HyperliquidConnection:
         if order_type is None:
             order_type = {"limit": {"tif": "Gtc"}}
         
+        # Validar y ajustar el tamaño de la orden
+        is_valid, adjusted_sz = self.validate_order_size(asset, sz)
+        if not is_valid:
+            logger.warning(f"Tamaño de orden ajustado de {sz} a {adjusted_sz} para cumplir con el mínimo requerido")
+            sz = adjusted_sz
+        
         logger.info(f"Colocando orden: {asset}, {'compra' if is_buy else 'venta'}, {sz}, {limit_px}")
         
         try:
-            if self.exchange_api is None:
-                logger.error("Exchange API no disponible")
-                return {"status": "error", "error": "Exchange API no disponible"}
+            # Usar la API REST directamente
+            url = f"{self.base_url}/exchange"
             
-            # Preparar la orden
-            order_request = {
-                "coin": asset,
-                "is_buy": is_buy,
-                "sz": sz,
-                "limit_px": limit_px,
-                "order_type": order_type,
-                "reduce_only": reduce_only
+            # Preparar la firma
+            timestamp = int(time.time() * 1000)
+            nonce = timestamp
+            
+            # Construir el payload
+            action = {
+                "type": "order",
+                "asset": asset,
+                "isBuy": is_buy,
+                "sz": str(sz),
+                "limitPx": str(limit_px),
+                "orderType": order_type,
+                "reduceOnly": reduce_only
             }
             
-            # Usar la API de exchange para colocar la orden
-            result = self.exchange_api.order(
-                order_request,
-                signature=self._sign_l1_action(order_request)
-            )
+            payload = {
+                "action": action,
+                "nonce": nonce,
+                "signature": self._sign_action(action, nonce)
+            }
             
-            logger.info(f"Orden colocada exitosamente: {result}")
-            return {"status": "ok", "response": result}
+            headers = {"Content-Type": "application/json"}
             
-        except Exception as e:
-            logger.error(f"Error al colocar orden: {str(e)}")
-            return {"status": "error", "error": str(e)}
-    
-    def place_market_order(self, asset: str, is_buy: bool, sz: float) -> Dict[str, Any]:
-        """
-        Coloca una orden de mercado.
-        
-        Args:
-            asset: Símbolo del activo
-            is_buy: True para compra, False para venta
-            sz: Tamaño de la orden
+            response = requests.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            result = response.json()
             
-        Returns:
-            Resultado de la orden
-        """
-        try:
-            # Obtener precio actual para la orden de mercado
-            market_data = self.get_market_data(asset)
-            if not market_data:
-                return {"status": "error", "error": "No se pudo obtener precio de mercado"}
-            
-            mid_price = float(market_data["midPrice"])
-            
-            # Ajustar precio para orden de mercado (con slippage)
-            slippage = 0.01  # 1% de slippage
-            if is_buy:
-                market_price = mid_price * (1 + slippage)
+            # Verificar si hay errores en la respuesta
+            if result.get("status") == "ok":
+                response_data = result.get("response", {}).get("data", {})
+                statuses = response_data.get("statuses", [])
+                
+                for status in statuses:
+                    error = status.get("error")
+                    if error:
+                        logger.error(f"Error en la orden: {error}")
+                        return {"status": "error", "error": error}
+                
+                logger.info(f"Orden colocada exitosamente: {response_data}")
+                return {"status": "ok", "response": response_data}
             else:
-                market_price = mid_price * (1 - slippage)
-            
-            # Colocar como orden límite con precio de mercado
-            return self.place_order(
-                asset=asset,
-                is_buy=is_buy,
-                sz=sz,
-                limit_px=market_price,
-                order_type={"limit": {"tif": "Ioc"}}  # Immediate or Cancel
-            )
-            
+                error = result.get("error", "Error desconocido")
+                logger.error(f"Error al colocar la orden: {error}")
+                return {"status": "error", "error": error}
         except Exception as e:
-            logger.error(f"Error al colocar orden de mercado: {str(e)}")
+            logger.error(f"Error al colocar la orden: {str(e)}")
             return {"status": "error", "error": str(e)}
     
-    def cancel_order(self, asset: str, order_id: str) -> Dict[str, Any]:
+    def _sign_action(self, action: Dict[str, Any], nonce: int) -> str:
         """
-        Cancela una orden existente.
-        
-        Args:
-            asset: Símbolo del activo
-            order_id: ID de la orden a cancelar
-            
-        Returns:
-            Resultado de la cancelación
-        """
-        try:
-            if self.exchange_api is None:
-                logger.error("Exchange API no disponible")
-                return {"status": "error", "error": "Exchange API no disponible"}
-            
-            cancel_request = {
-                "coin": asset,
-                "o": order_id
-            }
-            
-            result = self.exchange_api.cancel(
-                cancel_request,
-                signature=self._sign_l1_action(cancel_request)
-            )
-            
-            logger.info(f"Orden {order_id} cancelada exitosamente")
-            return {"status": "ok", "response": result}
-            
-        except Exception as e:
-            logger.error(f"Error al cancelar orden {order_id}: {str(e)}")
-            return {"status": "error", "error": str(e)}
-    
-    def _sign_l1_action(self, action: Dict[str, Any]) -> str:
-        """
-        Firma una acción L1 para la API de exchange.
+        Firma una acción para la API de Hyperliquid.
         
         Args:
             action: Acción a firmar
+            nonce: Número único para evitar repetición
             
         Returns:
-            Firma hexadecimal
+            Firma en formato hexadecimal
         """
-        try:
-            # Implementar firma según la documentación de Hyperliquid
-            # Esta es una implementación simplificada
-            action_str = json.dumps(action, separators=(',', ':'))
-            message_hash = eth_account.messages.encode_defunct(text=action_str)
-            signed_message = self.account.sign_message(message_hash)
-            return signed_message.signature.hex()
-            
-        except Exception as e:
-            logger.error(f"Error al firmar acción: {str(e)}")
-            raise
-    
-    def get_open_orders(self) -> List[Dict[str, Any]]:
-        """
-        Obtiene todas las órdenes abiertas.
-        
-        Returns:
-            Lista de órdenes abiertas
-        """
-        try:
-            user_state = self.get_user_state()
-            return user_state.get("openOrders", [])
-            
-        except Exception as e:
-            logger.error(f"Error al obtener órdenes abiertas: {str(e)}")
-            return []
-    
-    def get_positions(self) -> List[Dict[str, Any]]:
-        """
-        Obtiene todas las posiciones abiertas.
-        
-        Returns:
-            Lista de posiciones abiertas
-        """
-        try:
-            user_state = self.get_user_state()
-            return user_state.get("assetPositions", [])
-            
-        except Exception as e:
-            logger.error(f"Error al obtener posiciones: {str(e)}")
-            return []
-    
-    def validate_order_size(self, asset: str, size: float) -> Tuple[bool, float]:
-        """
-        Valida y ajusta el tamaño de una orden según los requisitos del mercado.
-        
-        Args:
-            asset: Símbolo del activo
-            size: Tamaño propuesto
-            
-        Returns:
-            Tupla (es_válido, tamaño_ajustado)
-        """
-        try:
-            # Obtener metadatos del mercado
-            meta = self.get_market_metadata()
-            
-            if asset in meta:
-                asset_meta = meta[asset]
-                min_size = float(asset_meta.get("szDecimals", 0))
-                
-                if size < min_size:
-                    logger.warning(f"Tamaño {size} menor que mínimo {min_size} para {asset}")
-                    return False, min_size
-                
-                # Redondear al número correcto de decimales
-                decimals = int(asset_meta.get("szDecimals", 6))
-                adjusted_size = round(size, decimals)
-                
-                return True, adjusted_size
-            else:
-                logger.warning(f"No se encontraron metadatos para {asset}")
-                return True, size
-                
-        except Exception as e:
-            logger.error(f"Error al validar tamaño de orden: {str(e)}")
-            return True, size
-    
-    def get_market_metadata(self) -> Dict[str, Any]:
-        """
-        Obtiene metadatos del mercado con caché.
-        
-        Returns:
-            Metadatos del mercado
-        """
-        try:
-            if self.info_api is None:
-                logger.error("Info API no disponible")
-                return {}
-            
-            current_time = time.time()
-            
-            # Usar caché si es reciente (5 minutos)
-            if (current_time - self._market_metadata_timestamp) < 300 and self._market_metadata_cache:
-                return self._market_metadata_cache
-            
-            # Obtener metadatos frescos
-            meta = self.info_api.meta()
-            
-            # Procesar metadatos en formato utilizable
-            processed_meta = {}
-            if isinstance(meta, dict) and "universe" in meta:
-                for asset_info in meta["universe"]:
-                    if "name" in asset_info:
-                        processed_meta[asset_info["name"]] = asset_info
-            
-            # Actualizar caché
-            self._market_metadata_cache = processed_meta
-            self._market_metadata_timestamp = current_time
-            
-            return processed_meta
-            
-        except Exception as e:
-            logger.error(f"Error al obtener metadatos del mercado: {str(e)}")
-            return self._market_metadata_cache or {}
+        # Implementar la firma según la documentación de Hyperliquid
+        message = json.dumps({"action": action, "nonce": nonce})
+        message_hash = eth_account.messages.encode_defunct(text=message)
+        signed_message = self.account.sign_message(message_hash)
+        return signed_message.signature.hex()
     
     def transfer_spot_to_perp(self, amount: float) -> Dict[str, Any]:
         """
-        Transfiere fondos de cuenta spot a perpetual.
+        Transfiere fondos de la cuenta spot a la cuenta perpetual.
         
         Args:
-            amount: Cantidad a transferir
+            amount: Cantidad a transferir en USDC
             
         Returns:
             Resultado de la transferencia
         """
         try:
-            if self.exchange_api is None:
-                logger.error("Exchange API no disponible")
-                return {"status": "error", "error": "Exchange API no disponible"}
+            logger.info(f"Transfiriendo {amount} USDC de spot a perpetual")
             
-            transfer_request = {
-                "destination": "perp",
+            # Usar la API REST directamente
+            url = f"{self.base_url}/exchange"
+            
+            # Preparar la firma
+            timestamp = int(time.time() * 1000)
+            nonce = timestamp
+            
+            # Construir el payload
+            action = {
+                "type": "transferSpotMargin",
                 "amount": str(amount)
             }
             
-            result = self.exchange_api.spot_transfer(
-                transfer_request,
-                signature=self._sign_l1_action(transfer_request)
-            )
+            payload = {
+                "action": action,
+                "nonce": nonce,
+                "signature": self._sign_action(action, nonce)
+            }
             
-            logger.info(f"Transferencia de {amount} USDC de spot a perp exitosa")
-            return {"status": "ok", "response": result}
+            headers = {"Content-Type": "application/json"}
             
+            response = requests.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get("status") == "ok":
+                logger.info(f"Transferencia exitosa: {amount} USDC")
+                return {"status": "ok", "response": result.get("response")}
+            else:
+                error = result.get("error", "Error desconocido")
+                logger.error(f"Error en la transferencia: {error}")
+                return {"status": "error", "error": error}
         except Exception as e:
-            logger.error(f"Error en transferencia spot a perp: {str(e)}")
+            logger.error(f"Error al transferir fondos: {str(e)}")
             return {"status": "error", "error": str(e)}
-
