@@ -3,9 +3,21 @@ import uvicorn
 import logging
 from typing import Optional, List, Dict, Any
 import os
+import sys # Added sys import
 import glob
 import json # Added for config handling
 import shutil # For backing up config file
+
+# Adjust sys.path to allow running script directly from project root
+# Get the absolute path of the current script (api_server.py)
+current_script_path = os.path.abspath(__file__)
+# Get the path of the 'src' directory
+src_directory_path = os.path.dirname(current_script_path)
+# Get the path of the project root directory (parent of 'src')
+project_root_path = os.path.dirname(src_directory_path)
+# Add the project root to sys.path if it's not already there
+if project_root_path not in sys.path:
+    sys.path.insert(0, project_root_path)
 
 # Attempt to import the bot class
 try:
@@ -21,6 +33,8 @@ bot_initialization_error: Optional[str] = None
 # Configure basic logging for the API server
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+app = FastAPI() # Moved app definition here
 
 @app.on_event("startup")
 async def startup_event():
@@ -43,7 +57,7 @@ async def startup_event():
         logger.error("CCXTHyperliquidBot class not available due to import error.")
         bot_initialization_error = "CCXTHyperliquidBot class could not be imported."
 
-app = FastAPI()
+# app = FastAPI() # Removed from here
 
 @app.get("/")
 async def root():
@@ -260,4 +274,4 @@ async def update_config(new_config: Dict[str, Any]):
 if __name__ == "__main__":
     # This is for local testing only.
     # In a production environment, Uvicorn should be run by a process manager.
-    uvicorn.run("api_server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

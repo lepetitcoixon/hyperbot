@@ -39,17 +39,12 @@ Este documento describe la implementación de la estrategia optimizada para trad
 
 ## Archivos Modificados
 
-1. **technical.py**: Implementa los indicadores técnicos y la lógica de señales
-2. **orders.py**: Gestiona las órdenes, posiciones y capital
-3. **main.py**: Coordina la ejecución del bot y el bucle de trading
-4. **config.json**: Configuración de parámetros de la estrategia
-
-## Uso del Bot
-
-1. Actualiza los valores de `account_address` y `secret_key` en `config/config.json` (la ruta ha cambiado).
-2. Ejecuta el bot con el comando: `python src/main.py` (Ten en cuenta que `main.py` ahora podría estar refactorizado o ser el punto de entrada para `ccxt_main.py` si se mantiene la ejecución CLI directa).
-3. El bot (si se ejecuta directamente) analizará el mercado de BTC y ejecutará operaciones según las condiciones de la estrategia.
-4. Los logs se guardarán en la carpeta `logs` para seguimiento.
+1. **technical.py**: Implementa los indicadores técnicos y la lógica de señales.
+2. **orders.py**: Gestiona las órdenes, posiciones y capital.
+3. **config.json**: Configuración de parámetros de la estrategia.
+4. **api_server.py**: Provee una API FastAPI para controlar el bot y exponer datos.
+5. **ccxt_main.py**: Contiene la clase principal del bot y su lógica, ahora controlada por `api_server.py`.
+6. **Archivos de Interfaz de Usuario (en `src/` y `src/components/`):** Implementan el dashboard de gestión web.
 
 ## Ejecución de la Interfaz Web de Gestión
 
@@ -72,9 +67,10 @@ El servidor API maneja la lógica del bot y la comunicación con el exchange.
 
 *   **Comando:**
     ```bash
+    # Desde el directorio raíz del proyecto:
     python src/api_server.py
     ```
-    (Nota: Este script inicia un servidor Uvicorn. Alternativamente, puedes ejecutar `uvicorn src.api_server:app --host 0.0.0.0 --port 8000 --reload` desde el directorio raíz).
+    (Nota: Este script ejecuta directamente el servidor API Uvicorn. Gracias a las modificaciones internas en el script (`sys.path` y el bloque `if __name__ == "__main__":`), ahora es la forma recomendada y más simple de iniciar el backend).
 *   **URL por defecto:** El servidor API estará disponible en `http://localhost:8000`.
 
 ### 2. Ejecutar la Aplicación Frontend (React)
@@ -99,7 +95,7 @@ Una vez que ambos servidores (backend y frontend) estén en ejecución:
 2.  Dirígete a la URL del frontend: `http://localhost:5173`.
 3.  Desde aquí podrás interactuar con el bot.
 
-**Nota:** La interfaz web es ahora la forma recomendada para gestionar el bot, ya que `src/main.py` o `src/ccxt_main.py` han sido refactorizados para ser controlados por el servidor API.
+**Nota:** La interfaz web es ahora la forma recomendada para gestionar el bot, ya que la lógica del bot (originalmente en `src/ccxt_main.py`) ha sido refactorizada para ser controlada por el servidor API.
 
 ## Monitoreo
 
