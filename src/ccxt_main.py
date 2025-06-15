@@ -565,25 +565,25 @@ class CCXTHyperliquidBot:
         self.analysis_interval = seconds
         logger.info(f"⏱️ Intervalo de análisis técnico configurado: {seconds} segundos")
 
-def main():
-    """Función principal para ejecutar el bot."""
-    try:
-        # Crear e iniciar el bot
-        bot = CCXTHyperliquidBot()
-        bot.start()
+# def main():
+#     """Función principal para ejecutar el bot."""
+#     try:
+#         # Crear e iniciar el bot
+#         bot = CCXTHyperliquidBot()
+#         bot.start()
         
-        # Mantener el programa en ejecución
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            logger.info("⌨️ Interrupción de teclado detectada")
-        finally:
-            bot.stop()
+#         # Mantener el programa en ejecución
+#         try:
+#             while True:
+#                 time.sleep(1)
+#         except KeyboardInterrupt:
+#             logger.info("⌨️ Interrupción de teclado detectada")
+#         finally:
+#             bot.stop()
     
-    except Exception as e:
-        logger.error(f"❌ Error al iniciar el bot: {str(e)}", exc_info=True)
+#     except Exception as e:
+#         logger.error(f"❌ Error al iniciar el bot: {str(e)}", exc_info=True)
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
 
