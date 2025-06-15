@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request # Add Request
+from fastapi.responses import JSONResponse # Add JSONResponse
 import uvicorn
 import logging
 from typing import Optional, List, Dict, Any
@@ -35,6 +36,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI() # Moved app definition here
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    # Log the exception with traceback for server-side debugging
+    logger.error(f"Unhandled exception for request {request.method} {request.url}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"An unexpected server error occurred: {type(exc).__name__} - {str(exc)}"},
+    )
 
 @app.on_event("startup")
 async def startup_event():
