@@ -7,6 +7,7 @@ export default {
   theme: {
     extend: {
       colors: {
+        border: "hsl(var(--border))", // Added line
         dark: {
           50: '#f8fafc',
           100: '#f1f5f9',
