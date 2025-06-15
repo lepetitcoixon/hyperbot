@@ -1,20 +1,22 @@
 import React from 'react';
 
-const StatCard = ({ title, value, change, icon: Icon, positive, gradient }) => {
+// Default gradient if none is provided, or handle in CSS
+const StatCard = ({ title, value, unit = '', icon: Icon, gradient = 'bg-dark-800' }) => {
   return (
-    <div className={`stat-card ${gradient}`}>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-dark-700/50 rounded-lg flex items-center justify-center">
+    <div className={`p-5 rounded-xl shadow-lg transition-all duration-300 hover:shadow-2xl ${gradient}`}>
+      <div className="flex items-center gap-3 mb-3">
+        {Icon && (
+          <div className="p-2 bg-dark-700/50 rounded-lg">
             <Icon className="w-5 h-5 text-primary-400" />
           </div>
-          <div className="text-sm text-dark-400">{title}</div>
-        </div>
-        <div className={`text-sm font-medium ${positive ? 'profit-positive' : 'profit-negative'}`}>
-          {change}
-        </div>
+        )}
+        <h3 className="text-md font-medium text-gray-300">{title}</h3>
       </div>
-      <div className="text-2xl font-bold text-white">{value}</div>
+      <div className="text-3xl font-bold text-white">
+        {value}
+        {unit && <span className="text-lg ml-1">{unit}</span>}
+      </div>
+      {/* Removed change display as it's not consistently available */}
     </div>
   );
 };
